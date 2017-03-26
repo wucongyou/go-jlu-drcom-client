@@ -2,6 +2,7 @@ package conf
 
 import (
 	"flag"
+
 	"github.com/BurntSushi/toml"
 )
 

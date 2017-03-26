@@ -4,19 +4,22 @@ import (
 	"crypto/md5"
 	"errors"
 	"fmt"
-	"go-jlu-drcom-client/conf"
 	"hash"
 	"log"
 	"math/big"
 	"net"
 	"strconv"
 	"strings"
+
+	"go-jlu-drcom-client/conf"
+)
+
+var (
+	_y = big.NewInt(1968)
+	_z = big.NewInt(int64(0xffffffff))
 )
 
 type Service struct {
-	ChallengeTimes int
-	Count          int
-	udpAddr        *net.UDPAddr
 	conf           *conf.Config
 	md5Ctx         hash.Hash
 	salt           []byte // [4:8]
@@ -26,6 +29,8 @@ type Service struct {
 	tail2          []byte
 	keepAliveVer   []byte // [28:30]
 	conn           *net.UDPConn
+	ChallengeTimes int
+	Count          int
 }
 
 // New create service instance and return.
@@ -43,18 +48,19 @@ func New(c *conf.Config) (s *Service) {
 		Count:          0,
 	}
 	var (
-		err error
+		err     error
+		udpAddr *net.UDPAddr
 	)
-	if s.udpAddr, err = net.ResolveUDPAddr("udp4", fmt.Sprintf("%s:%s", c.AuthServer, c.Port)); err != nil {
+	if udpAddr, err = net.ResolveUDPAddr("udp4", fmt.Sprintf("%s:%s", c.AuthServer, c.Port)); err != nil {
 		log.Fatal("failed to resolve udp address, ", err)
 	}
-	if s.conn, err = net.DialUDP("udp", nil, s.udpAddr); err != nil {
+	if s.conn, err = net.DialUDP("udp", nil, udpAddr); err != nil {
 		log.Fatal("failed to dial udp, ", err)
 	}
 	return
 }
 
-// Close dao
+// Close service.
 func (s *Service) Close() {
 	s.conn.Close()
 	return
@@ -65,17 +71,6 @@ func (s *Service) md5(items ...[]byte) (ret []byte) {
 		s.md5Ctx.Write(v)
 	}
 	ret = s.md5Ctx.Sum(nil)
-	s.md5Ctx.Reset()
-	return
-}
-
-func (s *Service) encrypt() (ret []byte) {
-	s.md5Ctx.Write([]byte{CODE, TYPE})
-	s.md5Ctx.Write(s.salt)
-	s.md5Ctx.Write([]byte(s.conf.Password))
-	ret = s.md5Ctx.Sum(nil)
-	copy(s.md5a, ret)
-	log.Printf("s.md5a: %v, result: %v\n", s.md5a, ret)
 	s.md5Ctx.Reset()
 	return
 }
@@ -97,20 +92,15 @@ func (s *Service) mac() (ret []byte, err error) {
 	return
 }
 
-func (s *Service) ror(md5a, password []byte) (result []byte) {
+func (s *Service) ror(md5a, password []byte) (ret []byte) {
 	l := len(password)
-	result = make([]byte, l)
+	ret = make([]byte, l)
 	for i := 0; i < l; i++ {
 		x := md5a[i] ^ password[i]
-		result[i] = (byte)((x << 3) + (x >> 5))
+		ret[i] = (byte)((x << 3) + (x >> 5))
 	}
 	return
 }
-
-var (
-	_y = big.NewInt(1968)
-	_z = big.NewInt(int64(0xffffffff))
-)
 
 func (s *Service) checkSum(data []byte) (ret []byte) {
 	// 1234 = 0x_00_00_04_d2

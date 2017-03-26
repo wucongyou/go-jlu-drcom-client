@@ -95,7 +95,9 @@ func (s *Service) buf() (buf []byte, err error) {
 	buf = make([]byte, 0)
 	buf = append(buf, CODE, TYPE, EOF,
 		byte(len(s.conf.Username)+20)) // [0:4]
-	buf = append(buf, s.encrypt()...) // [4:20]
+	md5a := s.md5([]byte{CODE, TYPE}, s.salt, []byte(s.conf.Password))
+	copy(s.md5a, md5a)
+	buf = append(buf, md5a...) // [4:20]
 	user := make([]byte, 36, 36)
 	copy(user, []byte(s.conf.Username))
 	buf = append(buf, user...)                    // [20:56]

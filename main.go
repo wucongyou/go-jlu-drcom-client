@@ -2,13 +2,14 @@ package main
 
 import (
 	"flag"
-	"go-jlu-drcom-client/conf"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"log"
-	"go-jlu-drcom-client/service"
+
+	"go-jlu-drcom-client/conf"
 	"go-jlu-drcom-client/controller"
+	"go-jlu-drcom-client/service"
 )
 
 func main() {
