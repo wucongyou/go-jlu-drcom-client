@@ -173,3 +173,118 @@ func (s *Service) buf() (buf []byte, err error) {
 	}
 	return
 }
+
+func (s *Service) Alive() (err error) {
+	var (
+		buf, recv []byte
+		conn      = s.conn
+	)
+	buf = s.buf38()
+	log.Printf("buf 38 start, buf: %v, buf len: %d\n", buf, len(buf))
+	if _, err = conn.Write(buf); err != nil {
+		log.Printf("conn.Write(%v) error(%v)", buf, err)
+		return
+	}
+	recv = make([]byte, 128)
+	if _, err = conn.Read(recv); err != nil {
+		log.Printf("conn.Read() error(%v)", err)
+		return
+	}
+	log.Printf("buf 38 ok, recv: %v\n", recv)
+	s.keepAliveVer[0] = recv[28]
+	s.keepAliveVer[1] = recv[29]
+	if s.extra() {
+		buf = s.buf40(true, true)
+		log.Printf("extra buf 40 start, buf: %v, buf len: %d\n", buf, len(buf))
+		if _, err = conn.Write(buf); err != nil {
+			log.Printf("conn.Write(%v) error(%v)", buf, err)
+			return
+		}
+		log.Println("write ok")
+		recv = make([]byte, 512)
+		if _, err = conn.Read(recv); err != nil {
+			log.Printf("conn.Read() error(%v)", err)
+			return
+		}
+		log.Printf("extra buf 40 ok, recv: %v\n", recv)
+	}
+	// 40_1
+	buf = s.buf40(true, false)
+	log.Printf("buf 40_1 start, buf: %v, buf len: %d\n", buf, len(buf))
+	if _, err = conn.Write(buf); err != nil {
+		log.Printf("conn.Write(%v) error(%v)", buf, err)
+		return
+	}
+	log.Println("write ok")
+	recv = make([]byte, 64)
+	if _, err = conn.Read(recv); err != nil {
+		log.Printf("conn.Read() error(%v)", err)
+		return
+	}
+	copy(s.tail2, recv[16:20])
+	// 40_2
+	log.Println("buf 40_2 start")
+	buf = s.buf40(false, false)
+	if _, err = conn.Write(buf); err != nil {
+		log.Printf("conn.Write(%v) error(%v)", buf, err)
+		return
+	}
+	if _, err = conn.Read(recv); err != nil {
+		log.Printf("conn.Read() error(%v)", err)
+	}
+	return
+}
+
+func (s *Service) buf38() (buf []byte) {
+	buf = make([]byte, 0)
+	buf = append(buf, byte(0xff))                       // [0:1]
+	buf = append(buf, s.md5a...)                        // [1:17]
+	buf = append(buf, bytes.Repeat([]byte{0x00}, 3)...) // [17:20]
+	buf = append(buf, s.tail1...)                       // [20:36]
+	for i := 0; i < 2; i++ {                            // [36:38]
+		buf = append(buf, byte(rand.Int()))
+	}
+	return
+}
+
+func (s *Service) buf40(firstOrSecond, extra bool) (buf []byte) {
+	buf = make([]byte, 0)
+	buf = append(buf, []byte{0x07, byte(s.Count), 0x28, 0x00, 0x0b}...) // [0:5]
+	s.Count++
+	// keep40_1   keep40_2
+	// 发送  接收  发送  接收
+	// 0x01 0x02 0x03 0xx04
+	// [5:6]
+	if firstOrSecond || extra { //keep40_1 keep40_extra 是 0x01
+		buf = append(buf, byte(0x01))
+	} else {
+		buf = append(buf, byte(0x03))
+	}
+	// [6:8]
+	if extra {
+		buf = append(buf, []byte{0x0f, 0x27}...)
+	} else {
+		buf = append(buf, []byte{s.keepAliveVer[0], s.keepAliveVer[1]}...)
+	}
+	// [8:10]
+	for i := 0; i < 2; i++ {
+		buf = append(buf, byte(rand.Int()))
+	}
+	buf = append(buf, bytes.Repeat([]byte{0x00}, 6)...) //[10:16]
+	buf = append(buf, s.tail2...)                       // [16:20]
+	buf = append(buf, bytes.Repeat([]byte{0x00}, 4)...) //[20:24]
+	if !firstOrSecond {
+		tmp := make([]byte, len(buf))
+		copy(tmp, buf)
+		tmp = append(tmp, s.clientIp...)
+		sum := s.crc(tmp)
+		buf = append(buf, sum...)                           // [24:28]
+		buf = append(buf, s.clientIp...)                    // [28:32]
+		buf = append(buf, bytes.Repeat([]byte{0x00}, 8)...) //[32:40]
+	}
+	if len(buf) < 40 {
+		buf = append(buf, bytes.Repeat([]byte{0x00}, 40-len(buf))...)
+	}
+	log.Printf("buf: %v, buf len: %d\n", buf, len(buf))
+	return
+}

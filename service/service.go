@@ -13,20 +13,18 @@ import (
 	"strings"
 )
 
-var (
-	keepAliver = [2]byte{0xdc, 0x02}
-)
-
 type Service struct {
+	ChallengeTimes int
+	Count          int
+	udpAddr        *net.UDPAddr
 	conf           *conf.Config
 	md5Ctx         hash.Hash
-	challengeTimes int
 	salt           []byte // [4:8]
 	clientIp       []byte // [20:24]
 	md5a           []byte
 	tail1          []byte
 	tail2          []byte
-	count          int
+	keepAliveVer   []byte // [28:30]
 	conn           *net.UDPConn
 }
 
@@ -38,19 +36,21 @@ func New(c *conf.Config) (s *Service) {
 		md5a:           make([]byte, 16),
 		tail1:          make([]byte, 16),
 		tail2:          make([]byte, 4),
+		keepAliveVer:   []byte{0xdc, 0x02},
 		clientIp:       make([]byte, 4),
 		salt:           make([]byte, 4),
-		challengeTimes: 0,
-		count:          0,
+		ChallengeTimes: 0,
+		Count:          0,
 	}
 	var (
-		udpAddr *net.UDPAddr
-		err     error
+		err error
 	)
-	if udpAddr, err = net.ResolveUDPAddr("udp4", fmt.Sprintf("%s:%s", c.AuthServer, c.Port)); err != nil {
+	if s.udpAddr, err = net.ResolveUDPAddr("udp4", fmt.Sprintf("%s:%s", c.AuthServer, c.Port)); err != nil {
 		log.Fatal("failed to resolve udp address, ", err)
 	}
-	s.conn, err = net.DialUDP("udp", nil, udpAddr)
+	if s.conn, err = net.DialUDP("udp", nil, s.udpAddr); err != nil {
+		log.Fatal("failed to dial udp, ", err)
+	}
 	return
 }
 
@@ -60,39 +60,39 @@ func (s *Service) Close() {
 	return
 }
 
-func (s *Service) md5(items ...[]byte) (result []byte) {
+func (s *Service) md5(items ...[]byte) (ret []byte) {
 	for _, v := range items {
 		s.md5Ctx.Write(v)
 	}
-	result = s.md5Ctx.Sum(nil)
+	ret = s.md5Ctx.Sum(nil)
 	s.md5Ctx.Reset()
 	return
 }
 
-func (s *Service) encrypt() (result []byte) {
+func (s *Service) encrypt() (ret []byte) {
 	s.md5Ctx.Write([]byte{CODE, TYPE})
 	s.md5Ctx.Write(s.salt)
 	s.md5Ctx.Write([]byte(s.conf.Password))
-	result = s.md5Ctx.Sum(nil)
-	copy(s.md5a, result)
-	log.Printf("s.md5a: %v, result: %v\n", s.md5a, result)
+	ret = s.md5Ctx.Sum(nil)
+	copy(s.md5a, ret)
+	log.Printf("s.md5a: %v, result: %v\n", s.md5a, ret)
 	s.md5Ctx.Reset()
 	return
 }
 
-func (s *Service) mac() (result []byte, err error) {
+func (s *Service) mac() (ret []byte, err error) {
 	// check mac
 	as := strings.Replace(s.conf.Mac, ":", "", -1)
 	if len(as) != 12 {
 		err = errors.New("mac length is not correct")
 	}
-	result = make([]byte, 0)
+	ret = make([]byte, 0)
 	for i := 0; i < 12; i += 2 {
 		var v uint64
 		if v, err = strconv.ParseUint(as[i:i+2], 16, 8); err != nil {
 			log.Printf("strconv.ParseUint(%v, 16, 8) error(%v)", as[i:i+2], err)
 		}
-		result = append(result, byte(v))
+		ret = append(ret, byte(v))
 	}
 	return
 }
@@ -152,6 +152,30 @@ func (s *Service) checkSum(data []byte) (ret []byte) {
 	for j := length - 1; j >= 0 && i < 4; j-- {
 		ret[i] = tmpBytes[j]
 		i++
+	}
+	return
+}
+
+func (s *Service) extra() bool {
+	return s.Count%21 == 0
+}
+
+func (s *Service) crc(buf []byte) (ret []byte) {
+	sum := make([]byte, 2)
+	l := len(buf)
+	for i := 0; i < l-1; i += 2 {
+		sum[0] ^= buf[i+1]
+		sum[1] ^= buf[i]
+	}
+	x := big.NewInt(int64(0))
+	x.SetBytes(sum)
+	x.Mul(x, big.NewInt(int64(711)))
+	tmpBytes := x.Bytes()
+	ret = make([]byte, 4)
+	l = len(tmpBytes)
+	for i := 0; i < 4 && l > 0; i++ {
+		l--
+		ret[i] = tmpBytes[l]
 	}
 	return
 }
