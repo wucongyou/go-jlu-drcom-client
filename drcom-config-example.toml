@@ -1,0 +1,6 @@
+version = "1.0.0"
+authServer = "auth.jlu.edu.cn"
+port = "61440"
+username = "you username"
+password = "you password"
+mac = "your mac address"
