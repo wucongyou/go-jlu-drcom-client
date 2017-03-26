@@ -17,6 +17,7 @@ type Config struct {
 	Port       string
 	Username   string
 	Password   string
+	Hostname   string
 	Mac        string
 	Ip         string
 }
@@ -31,5 +32,6 @@ func Init() (err error) {
 		confPath = "drcom-config-example.toml"
 	}
 	_, err = toml.DecodeFile(confPath, &Conf)
+	Conf.Hostname = "++++++++"
 	return
 }
