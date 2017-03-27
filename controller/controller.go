@@ -10,5 +10,5 @@ var (
 
 func Init(s *service.Service) {
 	svc = s
-	start()
+	go start()
 }

@@ -18,9 +18,9 @@ func main() {
 		panic(err)
 	}
 	// signal handler
-	log.Printf("go-jlu-drcom-client [version: %s] start", conf.Conf.Version)
 	svr := service.New(conf.Conf)
 	controller.Init(svr)
+	log.Printf("go-jlu-drcom-client [version: %s] start", conf.Conf.Version)
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT, syscall.SIGSTOP)
 	for {
