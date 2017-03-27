@@ -14,16 +14,30 @@ import (
 	"go-jlu-drcom-client/conf"
 )
 
+const (
+	_code         = byte(0x03)
+	_type         = byte(0x01)
+	_eof          = byte(0x00)
+	_controlCheck = byte(0x20)
+	_adapterNum   = byte(0x05)
+	_ipDog        = byte(0x01)
+)
+
 var (
-	_y = big.NewInt(1968)
-	_z = big.NewInt(int64(0xffffffff))
+	_delimiter   = []byte{0x00, 0x00, 0x00, 0x00}
+	_emptyIP     = []byte{0, 0, 0, 0}
+	_primaryDNS  = []byte{10, 10, 10, 10}
+	_dhcpServer  = []byte{0, 0, 0, 0}
+	_authVersion = []byte{0x6a, 0x00}
+	_y           = big.NewInt(1968)
+	_z           = big.NewInt(int64(0xffffffff))
 )
 
 type Service struct {
 	conf           *conf.Config
 	md5Ctx         hash.Hash
 	salt           []byte // [4:8]
-	clientIp       []byte // [20:24]
+	clientIP       []byte // [20:24]
 	md5a           []byte
 	tail1          []byte
 	tail2          []byte
@@ -42,7 +56,7 @@ func New(c *conf.Config) (s *Service) {
 		tail1:          make([]byte, 16),
 		tail2:          make([]byte, 4),
 		keepAliveVer:   []byte{0xdc, 0x02},
-		clientIp:       make([]byte, 4),
+		clientIP:       make([]byte, 4),
 		salt:           make([]byte, 4),
 		ChallengeTimes: 0,
 		Count:          0,
@@ -52,10 +66,10 @@ func New(c *conf.Config) (s *Service) {
 		udpAddr *net.UDPAddr
 	)
 	if udpAddr, err = net.ResolveUDPAddr("udp4", fmt.Sprintf("%s:%s", c.AuthServer, c.Port)); err != nil {
-		log.Fatal("failed to resolve udp address, ", err)
+		log.Fatalf("net.ResolveUDPAddr(udp4, %s) error(%v) ", fmt.Sprintf("%s:%s", c.AuthServer, c.Port), err)
 	}
 	if s.conn, err = net.DialUDP("udp", nil, udpAddr); err != nil {
-		log.Fatal("failed to dial udp, ", err)
+		log.Fatalf("net.DialUDP(udp, %v, %v) error(%v)", nil, udpAddr, err)
 	}
 	return
 }
@@ -79,13 +93,15 @@ func (s *Service) mac() (ret []byte, err error) {
 	// check mac
 	as := strings.Replace(s.conf.Mac, ":", "", -1)
 	if len(as) != 12 {
-		err = errors.New("mac length is not correct")
+		err = errors.New("length of mac address is not correct")
 	}
-	ret = make([]byte, 0)
+	ret = make([]byte, 0, 6)
 	for i := 0; i < 12; i += 2 {
 		var v uint64
 		if v, err = strconv.ParseUint(as[i:i+2], 16, 8); err != nil {
 			log.Printf("strconv.ParseUint(%v, 16, 8) error(%v)", as[i:i+2], err)
+			ret = nil
+			return
 		}
 		ret = append(ret, byte(v))
 	}
@@ -105,10 +121,10 @@ func (s *Service) ror(md5a, password []byte) (ret []byte) {
 func (s *Service) checkSum(data []byte) (ret []byte) {
 	// 1234 = 0x_00_00_04_d2
 	sum := []byte{0x00, 0x00, 0x04, 0xd2}
-	length := len(data)
+	l := len(data)
 	i := 0
 	//0123_4567_8901_23
-	for ; i+3 < length; i = i + 4 {
+	for ; i+3 < l; i = i + 4 {
 		//abcd ^ 3210
 		//abcd ^ 7654
 		//abcd ^ 1098
@@ -117,11 +133,11 @@ func (s *Service) checkSum(data []byte) (ret []byte) {
 		sum[2] ^= data[i+1]
 		sum[3] ^= data[i]
 	}
-	if i < length {
+	if i < l {
 		//剩下_23
 		//i=12,len=14
 		tmp := make([]byte, 4)
-		for j := 3; j >= 0 && i < length; j-- {
+		for j := 3; j >= 0 && i < l; j-- {
 			//j=3 tmp = 0 0 0 2  i=12  13
 			//j=2 tmp = 0 0 3 2  i=13  14
 			tmp[j] = data[i]
@@ -136,10 +152,10 @@ func (s *Service) checkSum(data []byte) (ret []byte) {
 	x.Mul(x, _y)
 	x.Add(x, _z)
 	tmpBytes := x.Bytes()
-	length = len(tmpBytes)
+	l = len(tmpBytes)
 	i = 0
 	ret = make([]byte, 4)
-	for j := length - 1; j >= 0 && i < 4; j-- {
+	for j := l - 1; j >= 0 && i < 4; j-- {
 		ret[i] = tmpBytes[j]
 		i++
 	}

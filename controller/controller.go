@@ -1,17 +1,14 @@
 package controller
 
 import (
-	"log"
-
 	"go-jlu-drcom-client/service"
 )
 
 var (
-	drcomSvc *service.Service
+	svc *service.Service
 )
 
 func Init(s *service.Service) {
-	log.Print("init controller\n")
-	drcomSvc = s
+	svc = s
 	start()
 }

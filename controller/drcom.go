@@ -6,27 +6,28 @@ import (
 )
 
 func start() (err error) {
-	log.Println("challenge start")
-	if err = drcomSvc.Challenge(drcomSvc.ChallengeTimes); err != nil {
-		log.Printf("drcomSvc.Challenge(%d) error(%v)", drcomSvc.ChallengeTimes, err)
+	log.Println("challenge ...")
+	if err = svc.Challenge(svc.ChallengeTimes); err != nil {
+		log.Printf("drcomSvc.Challenge(%d) error(%v)", svc.ChallengeTimes, err)
 		return
 	}
-	drcomSvc.ChallengeTimes++
-	log.Println("challenge ok")
-	log.Println("login start")
-	if err = drcomSvc.Login(); err != nil {
+	svc.ChallengeTimes++
+	log.Println("ok")
+	log.Println("login ...")
+	if err = svc.Login(); err != nil {
 		log.Printf("drcomSvc.Login() error(%v)", err)
 		return
 	}
-	log.Println("login ok")
+	log.Println("ok")
 	count := 0
 	for {
 		count++
-		log.Printf("keep-alive start, count: %d", count)
-		if err = drcomSvc.Alive(); err != nil {
+		log.Printf("keep-alive ... %d", count)
+		if err = svc.Alive(); err != nil {
+			log.Printf("drcomSvc.Alive() error(%v)", err)
 			return
 		}
-		log.Printf("keep-alive ok, count: %d", count)
+		log.Println("ok")
 		time.Sleep(time.Second * 20)
 	}
 	return

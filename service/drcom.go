@@ -7,104 +7,89 @@ import (
 	"math/rand"
 )
 
-const (
-	CODE          = byte(0x03)
-	TYPE          = byte(0x01)
-	EOF           = byte(0x00)
-	CONTROL_CHECK = byte(0x20)
-	ADAPTER_NUM   = byte(0x05)
-	IP_DOG        = byte(0x01)
-)
-
-var (
-	_delimeter   = []byte{0x00, 0x00, 0x00, 0x00}
-	_emptyIp     = []byte{0x00, 0x00, 0x00, 0x00}
-	_primaryDns  = []byte{10, 10, 10, 10}
-	_dhcpServer  = []byte{0, 0, 0, 0}
-	_authVersion = []byte{0x6a, 0x00}
-)
-
 func (s *Service) Challenge(tryTimes int) (err error) {
-	buf := []byte{0x01, (byte)(0x02 + tryTimes),
-		byte(rand.Int()), byte(rand.Int()), 0x6a,
-		0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00}
 	var (
+		r   []byte
+		buf = []byte{0x01, (byte)(0x02 + tryTimes),
+			byte(rand.Int()), byte(rand.Int()), 0x6a,
+			0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00}
 		conn = s.conn
 	)
 	if _, err = conn.Write(buf); err != nil {
 		log.Printf("conn.Write(%v) error(%v)", buf, err)
 		return
 	}
-	recv := make([]byte, 76)
-	if _, err = conn.Read(recv); err != nil {
+	r = make([]byte, 76)
+	if _, err = conn.Read(r); err != nil {
 		log.Printf("conn.Read() error(%v)", err)
 		return
 	}
-	if recv[0] == 0x02 {
-		copy(s.salt, recv[4:8])
-		copy(s.clientIp, recv[20:24])
+	if r[0] == 0x02 {
+		copy(s.salt, r[4:8])
+		copy(s.clientIP, r[20:24])
 		return
 	}
-	log.Printf("recv: %v", recv)
-	err = errors.New("reveive head is not correct")
+	err = errors.New("challenge receive head is not correct")
 	return
 }
 
 func (s *Service) Login() (err error) {
-	buf, err := s.buf()
-	if err != nil {
-		log.Printf("service.buf() error(%v)", err)
-	}
-	log.Printf("buf len: %d, expected: %d", len(buf), 334+(len(s.conf.Password)-1)/4*4)
-	log.Printf("buf: %v\n", buf)
-	log.Printf("bufStr: %s\n", string(buf))
 	var (
+		r    []byte
+		buf  []byte
 		conn = s.conn
 	)
+	if buf, err = s.buf(); err != nil {
+		log.Printf("service.buf() error(%v)", err)
+		return
+	}
 	if _, err = conn.Write(buf); err != nil {
 		log.Printf("conn.Write(%v) error(%v)", buf, err)
 		return
 	}
-	recv := make([]byte, 128)
-	if _, err = conn.Read(recv); err != nil {
+	r = make([]byte, 128)
+	if _, err = conn.Read(r); err != nil {
 		log.Printf("conn.Read() error(%v)", err)
 		return
 	}
-	log.Printf("recv: %v", recv)
-	if recv[0] != 0x04 {
-		if recv[0] == 0x05 {
-			if recv[4] == 0x0B {
-				err = errors.New("Invalid Mac Address, please select the address registered in ip.jlu.edu.cn")
+	if r[0] != 0x04 {
+		if r[0] == 0x05 {
+			if r[4] == 0x0B {
+				err = errors.New("invalid mac address, please select the address registered in ip.jlu.edu.cn")
 			} else {
-				err = errors.New("Invalid username or password")
+				err = errors.New("invalid username or password")
 			}
 		} else {
-			err = errors.New("Failed to login, unknown error")
+			err = errors.New("login failed, unknown error")
 		}
 		return
 	}
 	// 保存 tail1. 构造 keep38 要用 md5a(在mkptk中保存) 和 tail1
 	// 注销也要用 tail1
-	copy(s.tail1, recv[23:39])
+	copy(s.tail1, r[23:39])
 	return
 }
 
 func (s *Service) buf() (buf []byte, err error) {
-	buf = make([]byte, 0)
-	buf = append(buf, CODE, TYPE, EOF,
+	var (
+		mac []byte
+	)
+	buf = make([]byte, 0, 334+(len(s.conf.Password)-1)/4*4)
+	buf = append(buf, _code, _type, _eof,
 		byte(len(s.conf.Username)+20)) // [0:4]
-	md5a := s.md5([]byte{CODE, TYPE}, s.salt, []byte(s.conf.Password))
+	// md5a
+	md5a := s.md5([]byte{_code, _type}, s.salt, []byte(s.conf.Password))
 	copy(s.md5a, md5a)
 	buf = append(buf, md5a...) // [4:20]
-	user := make([]byte, 36, 36)
+	// username
+	user := make([]byte, 36)
 	copy(user, []byte(s.conf.Username))
 	buf = append(buf, user...)                    // [20:56]
-	buf = append(buf, CONTROL_CHECK, ADAPTER_NUM) //[56:58]
+	buf = append(buf, _controlCheck, _adapterNum) //[56:58]
 	// md5a xor mac
-	mac, err := s.mac()
-	if err != nil {
+	if mac, err = s.mac(); err != nil {
 		log.Printf("service.mac() error(%v)", err)
 		return
 	}
@@ -116,23 +101,23 @@ func (s *Service) buf() (buf []byte, err error) {
 	md5b := s.md5([]byte{0x01}, []byte(s.conf.Password), []byte(s.salt), []byte{0x00, 0x00, 0x00, 0x00})
 	buf = append(buf, md5b...)                      // [64:80]
 	buf = append(buf, byte(0x01))                   // [80:81]
-	buf = append(buf, s.clientIp...)                // [81:85]
-	buf = append(buf, bytes.Repeat(_emptyIp, 3)...) // [85:97]
+	buf = append(buf, s.clientIP...)                // [81:85]
+	buf = append(buf, bytes.Repeat(_emptyIP, 3)...) // [85:97]
 	// md5c
 	tmp := make([]byte, len(buf))
 	copy(tmp, buf)
 	tmp = append(tmp, []byte{0x14, 0x00, 0x07, 0x0b}...)
 	md5c := s.md5(tmp)
 	buf = append(buf, md5c[:8]...)   // [97:105]
-	buf = append(buf, IP_DOG)        // [105:106]
-	buf = append(buf, _delimeter...) // [106:110]
-	hostname := make([]byte, 32, 32)
+	buf = append(buf, _ipDog)        // [105:106]
+	buf = append(buf, _delimiter...) // [106:110]
+	hostname := make([]byte, 32)
 	copy(hostname, []byte(s.conf.Hostname))
 	buf = append(buf, hostname...)                                               // [110:142]
-	buf = append(buf, _primaryDns...)                                            // [142:146]
+	buf = append(buf, _primaryDNS...)                                            // [142:146]
 	buf = append(buf, _dhcpServer...)                                            // [146:150]
-	buf = append(buf, _emptyIp...)                                               // secondary dns, [150:154]
-	buf = append(buf, bytes.Repeat(_delimeter, 2)...)                            // [154,162]
+	buf = append(buf, _emptyIP...)                                               // secondary dns, [150:154]
+	buf = append(buf, bytes.Repeat(_delimiter, 2)...)                            // [154,162]
 	buf = append(buf, []byte{0x94, 0x00, 0x00, 0x00}...)                         // [162,166]
 	buf = append(buf, []byte{0x06, 0x00, 0x00, 0x00}...)                         // [166,170]
 	buf = append(buf, []byte{0x02, 0x00, 0x00, 0x00}...)                         // [170,174]
@@ -160,7 +145,7 @@ func (s *Service) buf() (buf []byte, err error) {
 	ror := s.ror(s.md5a, []byte(s.conf.Password))
 	buf = append(buf, ror[:pwdLen]...)       // [314:314+pwdLen]
 	buf = append(buf, []byte{0x02, 0x0c}...) // [314+l:316+l]
-	tmp = make([]byte, len(buf))
+	tmp = make([]byte, 0, len(buf))
 	copy(tmp, buf)
 	tmp = append(tmp, []byte{0x01, 0x26, 0x07, 0x11, 0x00, 0x00}...)
 	tmp = append(tmp, mac[:4]...)
@@ -178,67 +163,62 @@ func (s *Service) buf() (buf []byte, err error) {
 
 func (s *Service) Alive() (err error) {
 	var (
-		buf, recv []byte
-		conn      = s.conn
+		r, buf []byte
+		conn   = s.conn
 	)
 	buf = s.buf38()
-	log.Printf("buf 38 start, buf: %v, buf len: %d\n", buf, len(buf))
 	if _, err = conn.Write(buf); err != nil {
 		log.Printf("conn.Write(%v) error(%v)", buf, err)
 		return
 	}
-	recv = make([]byte, 128)
-	if _, err = conn.Read(recv); err != nil {
+	r = make([]byte, 128)
+	if _, err = conn.Read(r); err != nil {
 		log.Printf("conn.Read() error(%v)", err)
 		return
 	}
-	log.Printf("buf 38 ok, recv: %v\n", recv)
-	s.keepAliveVer[0] = recv[28]
-	s.keepAliveVer[1] = recv[29]
+	s.keepAliveVer[0] = r[28]
+	s.keepAliveVer[1] = r[29]
 	if s.extra() {
 		buf = s.buf40(true, true)
-		log.Printf("extra buf 40 start, buf: %v, buf len: %d\n", buf, len(buf))
 		if _, err = conn.Write(buf); err != nil {
 			log.Printf("conn.Write(%v) error(%v)", buf, err)
 			return
 		}
-		log.Println("write ok")
-		recv = make([]byte, 512)
-		if _, err = conn.Read(recv); err != nil {
+		r = make([]byte, 512)
+		if _, err = conn.Read(r); err != nil {
 			log.Printf("conn.Read() error(%v)", err)
 			return
 		}
-		log.Printf("extra buf 40 ok, recv: %v\n", recv)
+		s.Count++
 	}
 	// 40_1
 	buf = s.buf40(true, false)
-	log.Printf("buf 40_1 start, buf: %v, buf len: %d\n", buf, len(buf))
 	if _, err = conn.Write(buf); err != nil {
 		log.Printf("conn.Write(%v) error(%v)", buf, err)
 		return
 	}
-	log.Println("write ok")
-	recv = make([]byte, 64)
-	if _, err = conn.Read(recv); err != nil {
+	r = make([]byte, 64)
+	if _, err = conn.Read(r); err != nil {
 		log.Printf("conn.Read() error(%v)", err)
 		return
 	}
-	copy(s.tail2, recv[16:20])
+	s.Count++
+	copy(s.tail2, r[16:20])
 	// 40_2
-	log.Println("buf 40_2 start")
 	buf = s.buf40(false, false)
 	if _, err = conn.Write(buf); err != nil {
 		log.Printf("conn.Write(%v) error(%v)", buf, err)
 		return
 	}
-	if _, err = conn.Read(recv); err != nil {
+	if _, err = conn.Read(r); err != nil {
 		log.Printf("conn.Read() error(%v)", err)
 	}
+	s.Count++
 	return
 }
 
 func (s *Service) buf38() (buf []byte) {
-	buf = make([]byte, 0)
+	buf = make([]byte, 0, 38)
 	buf = append(buf, byte(0xff))                       // [0:1]
 	buf = append(buf, s.md5a...)                        // [1:17]
 	buf = append(buf, bytes.Repeat([]byte{0x00}, 3)...) // [17:20]
@@ -249,15 +229,14 @@ func (s *Service) buf38() (buf []byte) {
 	return
 }
 
-func (s *Service) buf40(firstOrSecond, extra bool) (buf []byte) {
-	buf = make([]byte, 0)
+func (s *Service) buf40(first, extra bool) (buf []byte) {
+	buf = make([]byte, 0, 40)
 	buf = append(buf, []byte{0x07, byte(s.Count), 0x28, 0x00, 0x0b}...) // [0:5]
-	s.Count++
 	// keep40_1   keep40_2
 	// 发送  接收  发送  接收
 	// 0x01 0x02 0x03 0xx04
 	// [5:6]
-	if firstOrSecond || extra { //keep40_1 keep40_extra 是 0x01
+	if first || extra { //keep40_1 keep40_extra 是 0x01
 		buf = append(buf, byte(0x01))
 	} else {
 		buf = append(buf, byte(0x03))
@@ -275,18 +254,17 @@ func (s *Service) buf40(firstOrSecond, extra bool) (buf []byte) {
 	buf = append(buf, bytes.Repeat([]byte{0x00}, 6)...) //[10:16]
 	buf = append(buf, s.tail2...)                       // [16:20]
 	buf = append(buf, bytes.Repeat([]byte{0x00}, 4)...) //[20:24]
-	if !firstOrSecond {
+	if !first {
 		tmp := make([]byte, len(buf))
 		copy(tmp, buf)
-		tmp = append(tmp, s.clientIp...)
+		tmp = append(tmp, s.clientIP...)
 		sum := s.crc(tmp)
 		buf = append(buf, sum...)                           // [24:28]
-		buf = append(buf, s.clientIp...)                    // [28:32]
+		buf = append(buf, s.clientIP...)                    // [28:32]
 		buf = append(buf, bytes.Repeat([]byte{0x00}, 8)...) //[32:40]
 	}
 	if len(buf) < 40 {
 		buf = append(buf, bytes.Repeat([]byte{0x00}, 40-len(buf))...)
 	}
-	log.Printf("buf: %v, buf len: %d\n", buf, len(buf))
 	return
 }
