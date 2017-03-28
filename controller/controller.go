@@ -65,7 +65,7 @@ func Init(s *service.Service, c chan int) {
 func Close() {
 	close(out)
 	wg.Wait()
-	log.Println("close servce ...")
+	log.Println("close service ...")
 	svc.Close()
 	log.Println("ok")
 }
