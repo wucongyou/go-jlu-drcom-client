@@ -30,8 +30,9 @@ var (
 	_primaryDNS  = []byte{10, 10, 10, 10}
 	_dhcpServer  = []byte{0, 0, 0, 0}
 	_authVersion = []byte{0x6a, 0x00}
-	_y           = big.NewInt(1968)
-	_z           = big.NewInt(int64(0xffffffff))
+	_magic1      = big.NewInt(1968)
+	_magic2      = big.NewInt(int64(0xffffffff))
+	_magic3      = big.NewInt(int64(711))
 )
 
 type Service struct {
@@ -149,10 +150,7 @@ func (s *Service) checkSum(data []byte) (ret []byte) {
 		}
 	}
 	var x = big.NewInt(int64(0))
-	x.SetBytes(sum)
-	x.Mul(x, _y)
-	x.Add(x, _z)
-	tmpBytes := x.Bytes()
+	tmpBytes := x.SetBytes(sum).Mul(x, _magic1).Add(x, _magic2).Bytes()
 	l = len(tmpBytes)
 	i = 0
 	ret = make([]byte, 4)
@@ -175,9 +173,7 @@ func (s *Service) crc(buf []byte) (ret []byte) {
 		sum[1] ^= buf[i]
 	}
 	x := big.NewInt(int64(0))
-	x.SetBytes(sum)
-	x.Mul(x, big.NewInt(int64(711)))
-	tmpBytes := x.Bytes()
+	tmpBytes := x.SetBytes(sum).Mul(x, _magic3).Bytes()
 	ret = make([]byte, 4)
 	l = len(tmpBytes)
 	for i := 0; i < 4 && l > 0; i++ {

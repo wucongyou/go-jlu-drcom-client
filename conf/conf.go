@@ -2,6 +2,7 @@ package conf
 
 import (
 	"flag"
+	"os"
 
 	"github.com/BurntSushi/toml"
 )
@@ -32,7 +33,11 @@ func Init() (err error) {
 	if confPath == "" {
 		confPath = "drcom-config-example.toml"
 	}
-	_, err = toml.DecodeFile(confPath, &Conf)
-	Conf.Hostname = "++++++++"
+	if _, err = toml.DecodeFile(confPath, &Conf); err != nil {
+		return
+	}
+	if Conf.Hostname, err = os.Hostname(); err != nil {
+		Conf.Hostname = "unknown"
+	}
 	return
 }
