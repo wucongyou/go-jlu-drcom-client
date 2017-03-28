@@ -5,22 +5,17 @@ import (
 	"time"
 )
 
-func start() (err error) {
-	log.Println("challenge ...")
-	if err = svc.Challenge(svc.ChallengeTimes); err != nil {
-		log.Printf("drcomSvc.Challenge(%d) error(%v)", svc.ChallengeTimes, err)
-		return
-	}
-	svc.ChallengeTimes++
-	log.Println("ok")
-	log.Println("login ...")
-	if err = svc.Login(); err != nil {
-		log.Printf("drcomSvc.Login() error(%v)", err)
-		return
-	}
-	log.Println("ok")
+func alive(c chan int) (err error) {
 	count := 0
 	for {
+		select {
+		case _, ok := <-c:
+			if !ok {
+				log.Println("keep-alive goroutine get a logout signal, exit")
+				return
+			}
+		default:
+		}
 		count++
 		log.Printf("keep-alive ... %d", count)
 		if err = svc.Alive(); err != nil {

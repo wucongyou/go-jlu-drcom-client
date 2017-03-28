@@ -17,22 +17,32 @@ func main() {
 	if err := conf.Init(); err != nil {
 		panic(err)
 	}
-	// signal handler
-	svr := service.New(conf.Conf)
-	controller.Init(svr)
-	log.Printf("go-jlu-drcom-client [version: %s] start", conf.Conf.Version)
+	x := make(chan int)
 	c := make(chan os.Signal, 1)
+	svr := service.New(conf.Conf)
+	controller.Init(svr, x)
+	log.Printf("go-jlu-drcom-client [version: %s] start", conf.Conf.Version)
+	// signal handler
 	signal.Notify(c, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT, syscall.SIGSTOP)
 	for {
-		s := <-c
-		log.Printf("go-jlu-drcom-client get a signal %s", s.String())
-		switch s {
-		case syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGSTOP, syscall.SIGINT:
-			log.Printf("go-jlu-drcom-client [version: %s] exit", conf.Conf.Version)
-			return
-		case syscall.SIGHUP:
-		default:
-			return
+		select {
+		case _, ok := <-x:
+			if !ok {
+				log.Println("go-jlu-drcom-client terminated cause internal error")
+				controller.Close()
+				return
+			}
+		case s := <-c:
+			log.Printf("go-jlu-drcom-client get a signal %s", s.String())
+			switch s {
+			case syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGSTOP, syscall.SIGINT:
+				log.Printf("go-jlu-drcom-client [version: %s] exit", conf.Conf.Version)
+				controller.Close()
+				return
+			case syscall.SIGHUP:
+			default:
+				return
+			}
 		}
 	}
 }

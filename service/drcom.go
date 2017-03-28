@@ -41,8 +41,8 @@ func (s *Service) Login() (err error) {
 		buf  []byte
 		conn = s.conn
 	)
-	if buf, err = s.buf(); err != nil {
-		log.Printf("service.buf() error(%v)", err)
+	if buf, err = s.bufIn(); err != nil {
+		log.Printf("service.bufIn() error(%v)", err)
 		return
 	}
 	if _, err = conn.Write(buf); err != nil {
@@ -62,7 +62,7 @@ func (s *Service) Login() (err error) {
 				err = errors.New("invalid username or password")
 			}
 		} else {
-			err = errors.New("login failed, unknown error")
+			err = errors.New("login failed: unknown error")
 		}
 		return
 	}
@@ -72,15 +72,15 @@ func (s *Service) Login() (err error) {
 	return
 }
 
-func (s *Service) buf() (buf []byte, err error) {
+func (s *Service) bufIn() (buf []byte, err error) {
 	var (
-		mac []byte
+		md5a, md5b, md5c, mac []byte
 	)
 	buf = make([]byte, 0, 334+(len(s.conf.Password)-1)/4*4)
-	buf = append(buf, _code, _type, _eof,
+	buf = append(buf, _codeIn, _type, _eof,
 		byte(len(s.conf.Username)+20)) // [0:4]
 	// md5a
-	md5a := s.md5([]byte{_code, _type}, s.salt, []byte(s.conf.Password))
+	md5a = s.md5([]byte{_codeIn, _type}, s.salt, []byte(s.conf.Password))
 	copy(s.md5a, md5a)
 	buf = append(buf, md5a...) // [4:20]
 	// username
@@ -98,7 +98,7 @@ func (s *Service) buf() (buf []byte, err error) {
 	}
 	buf = append(buf, mac...) // [58:64]
 	// md5b
-	md5b := s.md5([]byte{0x01}, []byte(s.conf.Password), []byte(s.salt), []byte{0x00, 0x00, 0x00, 0x00})
+	md5b = s.md5([]byte{0x01}, []byte(s.conf.Password), []byte(s.salt), []byte{0x00, 0x00, 0x00, 0x00})
 	buf = append(buf, md5b...)                      // [64:80]
 	buf = append(buf, byte(0x01))                   // [80:81]
 	buf = append(buf, s.clientIP...)                // [81:85]
@@ -107,36 +107,42 @@ func (s *Service) buf() (buf []byte, err error) {
 	tmp := make([]byte, len(buf))
 	copy(tmp, buf)
 	tmp = append(tmp, []byte{0x14, 0x00, 0x07, 0x0b}...)
-	md5c := s.md5(tmp)
+	md5c = s.md5(tmp)
 	buf = append(buf, md5c[:8]...)   // [97:105]
 	buf = append(buf, _ipDog)        // [105:106]
 	buf = append(buf, _delimiter...) // [106:110]
 	hostname := make([]byte, 32)
 	copy(hostname, []byte(s.conf.Hostname))
-	buf = append(buf, hostname...)                                               // [110:142]
-	buf = append(buf, _primaryDNS...)                                            // [142:146]
-	buf = append(buf, _dhcpServer...)                                            // [146:150]
-	buf = append(buf, _emptyIP...)                                               // secondary dns, [150:154]
-	buf = append(buf, bytes.Repeat(_delimiter, 2)...)                            // [154,162]
-	buf = append(buf, []byte{0x94, 0x00, 0x00, 0x00}...)                         // [162,166]
-	buf = append(buf, []byte{0x06, 0x00, 0x00, 0x00}...)                         // [166,170]
-	buf = append(buf, []byte{0x02, 0x00, 0x00, 0x00}...)                         // [170,174]
-	buf = append(buf, []byte{0xf0, 0x23, 0x00, 0x00}...)                         // [174,178]
-	buf = append(buf, []byte{0x02, 0x00, 0x00, 0x00}...)                         // [178,182]
-	buf = append(buf, []byte{0x44, 0x72, 0x43, 0x4f, 0x4d, 0x00, 0xcf, 0x07}...) // [182,190]
-	buf = append(buf, byte(0x6a))                                                // [190,191]
-	buf = append(buf, bytes.Repeat([]byte{0x00}, 55)...)                         // [191:246]
-	exBytes := []byte{
-		0x33, 0x64, 0x63, 0x37, 0x39, 0x66, 0x35, 0x32,
-		0x31, 0x32, 0x65, 0x38, 0x31, 0x37, 0x30, 0x61,
-		0x63, 0x66, 0x61, 0x39, 0x65, 0x63, 0x39, 0x35,
-		0x66, 0x31, 0x64, 0x37, 0x34, 0x39, 0x31, 0x36,
-		0x35, 0x34, 0x32, 0x62, 0x65, 0x37, 0x62, 0x31,
-	}
-	buf = append(buf, exBytes...)                        // [246:286]
+	buf = append(buf, hostname...)                       // [110:142]
+	buf = append(buf, _primaryDNS...)                    // [142:146]
+	buf = append(buf, _dhcpServer...)                    // [146:150]
+	buf = append(buf, _emptyIP...)                       // secondary dns, [150:154]
+	buf = append(buf, bytes.Repeat(_delimiter, 2)...)    // [154,162]
+	buf = append(buf, []byte{0x94, 0x00, 0x00, 0x00}...) // [162,166]
+	buf = append(buf, []byte{0x06, 0x00, 0x00, 0x00}...) // [166,170]
+	buf = append(buf, []byte{0x02, 0x00, 0x00, 0x00}...) // [170,174]
+	buf = append(buf, []byte{0xf0, 0x23, 0x00, 0x00}...) // [174,178]
+	buf = append(buf, []byte{0x02, 0x00, 0x00, 0x00}...) // [178,182]
+	buf = append(buf, []byte{
+		0x44, 0x72, 0x43, 0x4f,
+		0x4d, 0x00, 0xcf, 0x07}...) // [182,190]
+	buf = append(buf, 0x6a)                              // [190,191]
+	buf = append(buf, bytes.Repeat([]byte{0x00}, 55)...) // [191:246]
+	buf = append(buf, []byte{
+		0x33, 0x64, 0x63, 0x37,
+		0x39, 0x66, 0x35, 0x32,
+		0x31, 0x32, 0x65, 0x38,
+		0x31, 0x37, 0x30, 0x61,
+		0x63, 0x66, 0x61, 0x39,
+		0x65, 0x63, 0x39, 0x35,
+		0x66, 0x31, 0x64, 0x37,
+		0x34, 0x39, 0x31, 0x36,
+		0x35, 0x34, 0x32, 0x62,
+		0x65, 0x37, 0x62, 0x31,
+	}...) // [246:286]
 	buf = append(buf, bytes.Repeat([]byte{0x00}, 24)...) // [286:310]
 	buf = append(buf, _authVersion...)                   // [310:312]
-	buf = append(buf, byte(0x00))                        // [312:313]
+	buf = append(buf, 0x00)                              // [312:313]
 	pwdLen := len(s.conf.Password)
 	if pwdLen > 16 {
 		pwdLen = 16
@@ -266,5 +272,56 @@ func (s *Service) buf40(first, extra bool) (buf []byte) {
 	if len(buf) < 40 {
 		buf = append(buf, bytes.Repeat([]byte{0x00}, 40-len(buf))...)
 	}
+	return
+}
+
+func (s *Service) Logout() (err error) {
+	var (
+		r, buf []byte
+		conn   = s.conn
+	)
+	if buf, err = s.bufOut(); err != nil {
+		log.Printf("service.bufOut() error(%v)", err)
+		return
+	}
+	if _, err = conn.Write(buf); err != nil {
+		log.Printf("conn.Write(%v) error(%v)", buf, err)
+		return
+	}
+	r = make([]byte, 512)
+	if _, err = conn.Read(r); err != nil {
+		log.Printf("conn.Read() error(%v)", err)
+		return
+	}
+	if r[0] != 0x04 {
+		err = errors.New("failed to logout: unknown error")
+	}
+	return
+}
+
+func (s *Service) bufOut() (buf []byte, err error) {
+	var (
+		md5, mac []byte
+	)
+	buf = make([]byte, 0, 80)
+	buf = append(buf, _codeOut, _type, _eof, byte(len(s.conf.Username)+20))
+	// md5
+	md5 = s.md5([]byte{_codeOut, _type}, s.salt, []byte(s.conf.Password))
+	buf = append(buf, md5...)
+	tmp := make([]byte, 36)
+	copy(tmp, []byte(s.conf.Username))
+	buf = append(buf, tmp...)
+	buf = append(buf, _controlCheck, _adapterNum)
+	// md5 xor mac
+	if mac, err = s.mac(); err != nil {
+		log.Printf("service.mac() error(%v)", err)
+		buf = nil
+		return
+	}
+	for i := 0; i < 6; i++ {
+		mac[i] = mac[i] ^ md5[i]
+	}
+	buf = append(buf, mac...)     // [58:64]
+	buf = append(buf, s.tail1...) // [64:80]
 	return
 }

@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	_code         = byte(0x03)
+	_codeIn       = byte(0x03)
+	_codeOut      = byte(0x06)
 	_type         = byte(0x01)
 	_eof          = byte(0x00)
 	_controlCheck = byte(0x20)
