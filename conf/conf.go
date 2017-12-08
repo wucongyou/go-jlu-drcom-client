@@ -20,8 +20,8 @@ type Config struct {
 	Username   string
 	Password   string
 	Hostname   string
-	Mac        string
-	Ip         string
+	MAC        string
+	IP         string
 }
 
 func init() {

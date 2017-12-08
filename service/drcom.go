@@ -7,6 +7,13 @@ import (
 	"math/rand"
 )
 
+var (
+	ErrChallengeHeadError = errors.New("challenge receive head is not correct")
+	ErrMACAddrError       = errors.New("invalid mac address")
+	ErrIdentifyError      = errors.New("invalid username or password")
+	ErrUnknown            = errors.New("login failed: unknown error")
+)
+
 func (s *Service) Challenge(tryTimes int) (err error) {
 	var (
 		r   []byte
@@ -31,7 +38,7 @@ func (s *Service) Challenge(tryTimes int) (err error) {
 		copy(s.clientIP, r[20:24])
 		return
 	}
-	err = errors.New("challenge receive head is not correct")
+	err = ErrChallengeHeadError
 	return
 }
 
@@ -57,12 +64,12 @@ func (s *Service) Login() (err error) {
 	if r[0] != 0x04 {
 		if r[0] == 0x05 {
 			if r[4] == 0x0B {
-				err = errors.New("invalid mac address, please select the address registered in ip.jlu.edu.cn")
+				err = ErrMACAddrError
 			} else {
-				err = errors.New("invalid username or password")
+				err = ErrIdentifyError
 			}
 		} else {
-			err = errors.New("login failed: unknown error")
+			err = ErrUnknown
 		}
 		return
 	}
@@ -76,21 +83,21 @@ func (s *Service) bufIn() (buf []byte, err error) {
 	var (
 		md5a, md5b, md5c, mac []byte
 	)
-	buf = make([]byte, 0, 334+(len(s.conf.Password)-1)/4*4)
+	buf = make([]byte, 0, 334+(len(s.c.Password)-1)/4*4)
 	buf = append(buf, _codeIn, _type, _eof,
-		byte(len(s.conf.Username)+20)) // [0:4]
+		byte(len(s.c.Username)+20)) // [0:4]
 	// md5a
-	md5a = s.md5([]byte{_codeIn, _type}, s.salt, []byte(s.conf.Password))
+	md5a = s.md5([]byte{_codeIn, _type}, s.salt, []byte(s.c.Password))
 	copy(s.md5a, md5a)
 	buf = append(buf, md5a...) // [4:20]
 	// username
 	user := make([]byte, 36)
-	copy(user, []byte(s.conf.Username))
+	copy(user, []byte(s.c.Username))
 	buf = append(buf, user...)                    // [20:56]
 	buf = append(buf, _controlCheck, _adapterNum) //[56:58]
 	// md5a xor mac
-	if mac, err = s.mac(); err != nil {
-		log.Printf("service.mac() error(%v)", err)
+	if mac, err = MACHex2Bytes(s.c.MAC); err != nil {
+		log.Printf("MACHex2Bytes(%s) error(%v)", s.c.MAC, err)
 		return
 	}
 	for i := 0; i < 6; i++ {
@@ -98,7 +105,7 @@ func (s *Service) bufIn() (buf []byte, err error) {
 	}
 	buf = append(buf, mac...) // [58:64]
 	// md5b
-	md5b = s.md5([]byte{0x01}, []byte(s.conf.Password), []byte(s.salt), []byte{0x00, 0x00, 0x00, 0x00})
+	md5b = s.md5([]byte{0x01}, []byte(s.c.Password), []byte(s.salt), []byte{0x00, 0x00, 0x00, 0x00})
 	buf = append(buf, md5b...)                      // [64:80]
 	buf = append(buf, byte(0x01))                   // [80:81]
 	buf = append(buf, s.clientIP...)                // [81:85]
@@ -112,7 +119,7 @@ func (s *Service) bufIn() (buf []byte, err error) {
 	buf = append(buf, _ipDog)        // [105:106]
 	buf = append(buf, _delimiter...) // [106:110]
 	hostname := make([]byte, 32)
-	copy(hostname, []byte(s.conf.Hostname))
+	copy(hostname, []byte(s.c.Hostname))
 	buf = append(buf, hostname...)                       // [110:142]
 	buf = append(buf, _primaryDNS...)                    // [142:146]
 	buf = append(buf, _dhcpServer...)                    // [146:150]
@@ -143,12 +150,12 @@ func (s *Service) bufIn() (buf []byte, err error) {
 	buf = append(buf, bytes.Repeat([]byte{0x00}, 24)...) // [286:310]
 	buf = append(buf, _authVersion...)                   // [310:312]
 	buf = append(buf, 0x00)                              // [312:313]
-	pwdLen := len(s.conf.Password)
+	pwdLen := len(s.c.Password)
 	if pwdLen > 16 {
 		pwdLen = 16
 	}
 	buf = append(buf, byte(pwdLen)) // [313:314]
-	ror := s.ror(s.md5a, []byte(s.conf.Password))
+	ror := s.ror(s.md5a, []byte(s.c.Password))
 	buf = append(buf, ror[:pwdLen]...)       // [314:314+pwdLen]
 	buf = append(buf, []byte{0x02, 0x0c}...) // [314+l:316+l]
 	tmp = make([]byte, 0, len(buf))
@@ -304,17 +311,17 @@ func (s *Service) bufOut() (buf []byte, err error) {
 		md5, mac []byte
 	)
 	buf = make([]byte, 0, 80)
-	buf = append(buf, _codeOut, _type, _eof, byte(len(s.conf.Username)+20))
+	buf = append(buf, _codeOut, _type, _eof, byte(len(s.c.Username)+20))
 	// md5
-	md5 = s.md5([]byte{_codeOut, _type}, s.salt, []byte(s.conf.Password))
+	md5 = s.md5([]byte{_codeOut, _type}, s.salt, []byte(s.c.Password))
 	buf = append(buf, md5...)
 	tmp := make([]byte, 36)
-	copy(tmp, []byte(s.conf.Username))
+	copy(tmp, []byte(s.c.Username))
 	buf = append(buf, tmp...)
 	buf = append(buf, _controlCheck, _adapterNum)
 	// md5 xor mac
-	if mac, err = s.mac(); err != nil {
-		log.Printf("service.mac() error(%v)", err)
+	if mac, err = MACHex2Bytes(s.c.MAC); err != nil {
+		log.Printf("MACHex2Bytes(%s) error(%v)", s.c.MAC, err)
 		buf = nil
 		return
 	}
